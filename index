@@ -1,0 +1,1455 @@
+HTML
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transformación - Resumen Ejecutivo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght=300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #050811;
+        }
+        /* Personalización de inputs para una experiencia limpia */
+        input::-webkit-outer-spin-button,
+        input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        input[type=number] {
+            -moz-appearance: textfield;
+        }
+        /* Efecto de brillo de neón (Glow) */
+        .neon-glow-green {
+            box-shadow: 0 0 15px rgba(0, 230, 118, 0.15);
+        }
+        .neon-border-green {
+            border-color: rgba(0, 230, 118, 0.4);
+        }
+        .neon-border-green:hover {
+            border-color: rgba(0, 230, 118, 1);
+            box-shadow: 0 0 20px rgba(0, 230, 118, 0.25);
+        }
+    </style>
+
+    <script>
+        document.addEventListener('alpine:init', () => {
+            Alpine.data('dashboardApp', () => ({
+                // Navegación
+                activeTab: 'resumen', // 'resumen', 'iniciativas' o 'base_datos'
+                selectedQFilter: 'Todos', // Filtrado por trimestre de iniciativas
+                
+                // Estado del Dashboard
+                editMode: false,
+                generalTitle: "Transformación - ",
+                generalSubtitle: "Resumen ejecutivo",
+                
+                // Configuración de sincronización automática de Google Sheets
+                sheetUrl: '', // URL del usuario
+                isSyncing: false,
+                lastSyncTime: '',
+                manualDownloadUrl: null, // Url de respaldo para descarga manual si CORS bloquea todo
+
+                // Estados de la base importada
+                csvPasteArea: '',
+                importSuccess: null,
+                importError: null,
+
+                // Etiquetas de las filas anuales
+                rowRevenue: {
+                    title: "Revenue USD"
+                },
+                rowProjects: {
+                    title: "Proyecto Comprometido"
+                },
+
+                // Dataset inicial por Q para Revenue USD (en miles)
+                quartersUSD: [
+                    { name: "Q1", meta: 5200, resultado: 4850 },
+                    { name: "Q2", meta: 6400, resultado: 5900 },
+                    { name: "Q3", meta: 5800, resultado: 2300 },
+                    { name: "Q4", meta: 7000, resultado: 0 }
+                ],
+
+                // Dataset inicial por Q para Proyectos Comprometidos (Unidades)
+                quartersProjects: [
+                    { name: "Q1", meta: 12, resultado: 12 },
+                    { name: "Q2", meta: 15, resultado: 14 },
+                    { name: "Q3", meta: 10, resultado: 5 },
+                    { name: "Q4", meta: 18, resultado: 0 }
+                ],
+
+                // Definición de Estados, porcentajes y paleta cromática exacta
+                states: [
+                    { id: 'Backlog', name: 'Backlog', range: '1–3%', barColor: 'bg-slate-500', textLight: 'text-slate-400', borderStyle: 'border-slate-500/30' },
+                    { id: 'En evaluación', name: 'En evaluación', range: '4–25%', barColor: 'bg-blue-500', textLight: 'text-blue-400', borderStyle: 'border-blue-500/30' },
+                    { id: 'En curso', name: 'En curso', range: '26–60%', barColor: 'bg-amber-500', textLight: 'text-amber-400', borderStyle: 'border-amber-500/30' },
+                    { id: 'Seg. / Impl.', name: 'Seg. / Impl.', range: '61–99%', barColor: 'bg-emerald-500', textLight: 'text-emerald-400', borderStyle: 'border-emerald-500/30' },
+                    { id: 'Finalizado', name: 'Finalizado', range: '100%', barColor: 'bg-teal-400', textLight: 'text-teal-400', borderStyle: 'border-teal-400/30' }
+                ],
+
+                // Fases oficiales y mapeo de su respectivo estado de procedencia
+                phases: [
+                    { name: 'Verificación de planificación de la dirección', state: 'Backlog', defaultProgress: 2 },
+                    { name: 'Análisis de viabilidad', state: 'En evaluación', defaultProgress: 10 },
+                    { name: 'Análisis AS-IS', state: 'En evaluación', defaultProgress: 18 },
+                    { name: 'Pre TO-BE', state: 'En evaluación', defaultProgress: 23 },
+                    { name: 'Kick off', state: 'En curso', defaultProgress: 30 },
+                    { name: 'Diseño TO-BE', state: 'En curso', defaultProgress: 42 },
+                    { name: 'Mesa validación', state: 'En curso', defaultProgress: 50 },
+                    { name: 'Socialización', state: 'En curso', defaultProgress: 58 },
+                    { name: 'En desarrollo', state: 'Seg. / Impl.', defaultProgress: 70 },
+                    { name: 'Pruebas y acompañamiento al stakeholder', state: 'Seg. / Impl.', defaultProgress: 80 },
+                    { name: 'Implementación', state: 'Seg. / Impl.', defaultProgress: 90 },
+                    { name: 'Medición impacto y lecciones aprendidas', state: 'Seg. / Impl.', defaultProgress: 96 },
+                    { name: 'Cierre y Entrega', state: 'Finalizado', defaultProgress: 100 }
+                ],
+                
+                // Dataset inicial alineado a los estados y fases oficiales (Se sobrescribirá con el CSV de Jira/Sheets)
+                initiatives: [
+                    { id: 1, name: "Migración de Core a la Nube", phase: "Diseño TO-BE", state: "En curso", q: "Q1", usdValue: 1250, progress: 45, isBlocked: false },
+                    { id: 2, name: "RPA - Conciliación Financiera", phase: "Cierre y Entrega", state: "Finalizado", q: "Q1", usdValue: 420, progress: 100, isBlocked: false },
+                    { id: 3, name: "Portal de Clientes Autogestión", phase: "En desarrollo", state: "Seg. / Impl.", q: "Q2", usdValue: 1800, progress: 70, isBlocked: false },
+                    { id: 4, name: "Piloto CRM Omnicanal", phase: "Verificación de planificación de la dirección", state: "Backlog", q: "Q2", usdValue: 600, progress: 2, isBlocked: false },
+                    { id: 5, name: "Capacitación Metodologías Ágiles", phase: "Socialización", state: "En curso", q: "Q3", usdValue: 150, progress: 55, isBlocked: false },
+                    { id: 6, name: "Arquitectura Big Data Analytics", phase: "En desarrollo", state: "Seg. / Impl.", q: "Q3", usdValue: 2100, progress: 75, isBlocked: true },
+                    { id: 7, name: "Gobernanza de Datos y AI Core", phase: "Análisis de viabilidad", state: "En evaluación", q: "Q4", usdValue: 950, progress: 12, isBlocked: false },
+                    { id: 8, name: "Motor de Decisiones Real-Time", phase: "Mesa validación", state: "En curso", q: "Q4", usdValue: 1450, progress: 50, isBlocked: false },
+                    { id: 9, name: "Migración Canal Digital Empresa", phase: "Implementación", state: "Seg. / Impl.", q: "Q1", usdValue: 890, progress: 90, isBlocked: false },
+                    { id: 10, name: "Seguridad Zero Trust Fase 1", phase: "Pre TO-BE", state: "En evaluación", q: "Q2", usdValue: 1100, progress: 20, isBlocked: true }
+                ],
+
+                // Variables para nueva iniciativa
+                newInitiative: {
+                    name: '',
+                    phase: 'Verificación de planificación de la dirección',
+                    state: 'Backlog',
+                    q: 'Q1',
+                    usdValue: 100,
+                    progress: 2,
+                    isBlocked: false
+                },
+
+                // Inicializador automático de Alpine
+                init() {
+                    this.syncFinancialsFromInitiatives();
+                    
+                    // Recuperar URL de Google Sheets si ya existía una guardada en este navegador
+                    const savedUrl = localStorage.getItem('transformation_sheet_url');
+                    if (savedUrl) {
+                        this.sheetUrl = savedUrl;
+                        this.syncFromGoogleSheets();
+                    }
+                },
+
+                // Sincronizador Directo con Google Apps Script (Anti-CORS)
+                async syncFromGoogleSheets() {
+                    this.isSyncing = true;
+                    this.importError = null;
+                    this.importSuccess = null;
+                    this.manualDownloadUrl = null;
+
+                    // Tu URL exacta de Google Apps Script publicada como Aplicación Web
+                    const webAppUrl = 'https://script.google.com/a/macros/itti.digital/s/AKfycbzWJ8I8LBXkEpUR5boMYpDClZq9opgHfPATBk0PwfHIjwcoLD3iC_k_AzXNlTkVyri8kw/exec';
+
+                    try {
+                        const response = await fetch(webAppUrl);
+                        if (!response.ok) throw new Error("Error en la respuesta de la Web App de Google");
+                        
+                        const data = await response.json();
+                        
+                        if (data && data.length > 0) {
+                            // Mapeamos dinámicamente las propiedades del JSON normalizando las claves a minúsculas
+                            this.initiatives = data.map((item, i) => {
+                                // Convertimos el objeto para poder hacer búsquedas insensibles a mayúsculas/minúsculas en los encabezados
+                                const cleanItem = {};
+                                Object.keys(item).forEach(k => {
+                                    cleanItem[k.toLowerCase().trim()] = item[k];
+                                });
+
+                                // Intentos de mapear presupuesto / valor
+                                let rawUsd = String(cleanItem['valor total por iniciativa'] || cleanItem['valor de bc neto'] || cleanItem['usd_k'] || cleanItem['valor_usd'] || cleanItem['presupuesto'] || cleanItem['usd'] || '0');
+                                rawUsd = rawUsd.replace(/[^0-9.,-]/g, '').replace(',', '.');
+                                let usdValue = parseFloat(rawUsd) || 0;
+                                if (usdValue > 50000) usdValue = Math.round(usdValue / 1000);
+
+                                // Intentos de mapear progreso / avance %
+                                let rawProgress = String(cleanItem['porcentaje de avance'] || cleanItem['avance'] || cleanItem['progreso'] || cleanItem['progress'] || '');
+                                rawProgress = rawProgress.replace(/[^0-9.,-]/g, '').replace(',', '.');
+                                let progress = parseFloat(rawProgress);
+
+                                // Intentos de mapear bloqueo
+                                let rawBlock = String(cleanItem['tipo de bloqueo'] || cleanItem['bloqueado'] || cleanItem['blocked'] || '').toLowerCase().trim();
+                                let isBlocked = rawBlock.length > 0 && rawBlock !== 'no' && rawBlock !== 'none' && rawBlock !== 'false';
+
+                                // Intentos de mapear nombre
+                                let keyVal = cleanItem['clave'] || cleanItem['key'] || '';
+                                let summaryVal = cleanItem['resumen'] || cleanItem['summary'] || cleanItem['iniciativa'] || cleanItem['nombre'] || '';
+                                let name = summaryVal ? (keyVal ? `[${keyVal}] ${summaryVal}` : summaryVal) : `Línea ${i + 1}`;
+
+                                // Intentos de mapear fase y estado
+                                let rawPhase = String(cleanItem['fase'] || cleanItem['phase'] || cleanItem['estado'] || cleanItem['status'] || '').trim();
+                                let phase = 'Verificación de planificación de la dirección';
+
+                                if (rawPhase) {
+                                    const norm = rawPhase.toLowerCase();
+                                    if (norm.includes('cierre') || norm.includes('entrega') || norm === 'finalizado' || norm === 'done' || norm === 'resolved') {
+                                        phase = 'Cierre y Entrega';
+                                    } else if (norm.includes('implementación') || norm.includes('implementacion')) {
+                                        phase = 'Implementación';
+                                    } else if (norm.includes('desarrollo') || norm === 'en desarrollo' || norm === 'in progress') {
+                                        phase = 'En desarrollo';
+                                    } else if (norm.includes('pruebas') || norm.includes('testing')) {
+                                        phase = 'Pruebas y acompañamiento al stakeholder';
+                                    } else if (norm.includes('socialización') || norm.includes('socializacion')) {
+                                        phase = 'Socialización';
+                                    } else if (norm.includes('validación') || norm.includes('validacion')) {
+                                        phase = 'Mesa validación';
+                                    } else if (norm.includes('diseño to-be') || norm.includes('to-be') || norm.includes('tobe')) {
+                                        phase = 'Diseño TO-BE';
+                                    } else if (norm.includes('kick off') || norm.includes('kickoff')) {
+                                        phase = 'Kick off';
+                                    } else if (norm.includes('pre to-be') || norm.includes('pre-to-be')) {
+                                        phase = 'Pre TO-BE';
+                                    } else if (norm.includes('as-is') || norm.includes('asis')) {
+                                        phase = 'Análisis AS-IS';
+                                    } else if (norm.includes('viabilidad') || norm.includes('feasibility')) {
+                                        phase = 'Análisis de viabilidad';
+                                    } else if (norm.includes('planificación') || norm.includes('planificacion') || norm.includes('backlog') || norm === 'to do') {
+                                        phase = 'Verificación de planificación de la dirección';
+                                    } else {
+                                        const matched = this.phases.find(p => p.name.toLowerCase().includes(norm) || norm.includes(p.name.toLowerCase()));
+                                        if (matched) phase = matched.name;
+                                    }
+                                }
+
+                                let matchPhase = this.phases.find(p => p.name.toLowerCase() === phase.toLowerCase()) || this.phases[0];
+                                if (isNaN(progress)) progress = matchPhase.defaultProgress;
+
+                                let qVal = String(cleanItem['q de compromiso'] || cleanItem['q'] || cleanItem['trimestre'] || cleanItem['compromiso'] || 'Q1').toUpperCase().trim();
+                                if (!['Q1', 'Q2', 'Q3', 'Q4'].includes(qVal)) {
+                                    const qMatch = qVal.match(/Q[1-4]/i);
+                                    qVal = qMatch ? qMatch[0].toUpperCase() : 'Q1';
+                                }
+
+                                return {
+                                    id: Date.now() + i,
+                                    name: name,
+                                    phase: matchPhase.name,
+                                    state: matchPhase.state,
+                                    q: qVal,
+                                    usdValue: usdValue,
+                                    progress: progress,
+                                    isBlocked: isBlocked
+                                };
+                            });
+
+                            this.syncFinancialsFromInitiatives();
+                            if (this.sheetUrl.trim()) {
+                                localStorage.setItem('transformation_sheet_url', this.sheetUrl.trim());
+                            }
+                            const now = new Date();
+                            this.lastSyncTime = now.toLocaleTimeString();
+                            this.importSuccess = `¡Sincronizado con éxito! Datos cargados directamente desde la API de Google Sheets sin errores de CORS a las ${this.lastSyncTime}.`;
+                        } else {
+                            this.importError = "El script de Google no devolvió datos estructurados válidos.";
+                        }
+                    } catch (err) {
+                        console.error(err);
+                        this.importError = "Error al conectar con la Web App: " + err.message + ". Comprueba que el script de Apps Script esté implementado para acceso de 'Cualquier persona'.";
+                    } finally {
+                        this.isSyncing = false;
+                    }
+                },
+
+                // Restaurar estado inicial recargando la página
+                resetData() {
+                    localStorage.removeItem('transformation_sheet_url');
+                    location.reload();
+                },
+
+                // Borrar conexión de Google Sheets
+                disconnectSheets() {
+                    this.sheetUrl = '';
+                    localStorage.removeItem('transformation_sheet_url');
+                    this.lastSyncTime = '';
+                    this.manualDownloadUrl = null;
+                    this.importSuccess = "Se ha desconectado Google Sheets. Presiona 'Restablecer' si deseas volver a los datos demo.";
+                },
+
+                // Al cambiar la fase, asocia automáticamente el estado y progreso por defecto
+                onPhaseChange(targetObj) {
+                    const match = this.phases.find(p => p.name === targetObj.phase);
+                    if (match) {
+                        targetObj.state = match.state;
+                        targetObj.progress = match.defaultProgress;
+                    }
+                },
+
+                getFilteredInitiatives() {
+                    if (this.selectedQFilter === 'Todos') {
+                        return this.initiatives;
+                    }
+                    return this.initiatives.filter(item => item.q === this.selectedQFilter);
+                },
+
+                getFilteredUSDTotal() {
+                    return this.getFilteredInitiatives().reduce((sum, item) => sum + item.usdValue, 0);
+                },
+
+                getFilteredAvgProgress() {
+                    const list = this.getFilteredInitiatives();
+                    if (list.length === 0) return 0;
+                    const sum = list.reduce((acc, item) => acc + item.progress, 0);
+                    return Math.round(sum / list.length);
+                },
+
+                getFilteredCriticalCount() {
+                    return this.getFilteredInitiatives().filter(item => item.isBlocked).length;
+                },
+
+                // Devuelve datos agregados para la matriz (Fase x Estado)
+                getMatrixCell(phaseName, stateId) {
+                    const matched = this.getFilteredInitiatives().filter(
+                        item => item.phase === phaseName && item.state === stateId
+                    );
+                    const count = matched.length;
+                    const usdValue = matched.reduce((sum, item) => sum + item.usdValue, 0);
+                    const hasBlocked = matched.some(item => item.isBlocked);
+                    return { count, usdValue, hasBlocked };
+                },
+
+                // Devuelve totales agregados de columna (Estado)
+                getStateTotals(stateId) {
+                    const matched = this.getFilteredInitiatives().filter(item => item.state === stateId);
+                    const count = matched.length;
+                    const usdValue = matched.reduce((sum, item) => sum + item.usdValue, 0);
+                    return { count, usdValue };
+                },
+
+                // Devuelve el avance promedio de una columna (Estado)
+                getStateAvgProgress(stateId) {
+                    const matched = this.getFilteredInitiatives().filter(item => item.state === stateId);
+                    if (matched.length === 0) return 0;
+                    const sum = matched.reduce((acc, item) => acc + item.progress, 0);
+                    return Math.round(sum / matched.length);
+                },
+
+                // Agregar iniciativa individual
+                addInitiative() {
+                    if (!this.newInitiative.name.trim()) return;
+                    this.initiatives.push({
+                        id: Date.now(),
+                        name: this.newInitiative.name,
+                        phase: this.newInitiative.phase,
+                        state: this.newInitiative.state,
+                        q: this.newInitiative.q,
+                        usdValue: Number(this.newInitiative.usdValue) || 0,
+                        progress: Number(this.newInitiative.progress) || 0,
+                        isBlocked: this.newInitiative.isBlocked
+                    });
+                    
+                    // Reset temporal
+                    this.newInitiative = {
+                        name: '',
+                        phase: 'Verificación de planificación de la dirección',
+                        state: 'Backlog',
+                        q: 'Q1',
+                        usdValue: 100,
+                        progress: 2,
+                        isBlocked: false
+                    };
+                    this.syncFinancialsFromInitiatives();
+                },
+
+                removeInitiative(id) {
+                    this.initiatives = this.initiatives.filter(item => item.id !== id);
+                    this.syncFinancialsFromInitiatives();
+                },
+
+                // Formateador de separadores de miles
+                formatNumber(val) {
+                    if (val === undefined || val === null || isNaN(val)) return '0';
+                    return new Intl.NumberFormat('de-DE').format(Math.round(val));
+                },
+
+                // Calcula la suma de las tablas de desglose por Q
+                calculateSum(type, field) {
+                    let dataset = type === 'usd' ? this.quartersUSD : this.quartersProjects;
+                    return dataset.reduce((acc, curr) => {
+                        let val = parseFloat(curr[field]);
+                        return acc + (isNaN(val) ? 0 : val);
+                    }, 0);
+                },
+
+                calculatePercentage(resultado, meta) {
+                    if (!meta || meta === 0) return '0.0';
+                    let r = parseFloat(resultado);
+                    let m = parseFloat(meta);
+                    if (isNaN(r) || isNaN(m)) return '0.0';
+                    
+                    let percent = (r / m) * 100;
+                    return percent.toFixed(1);
+                },
+
+                // Analizador robusto de filas de CSV con soporte para comas dentro de textos entrecomillados
+                parseCSVLine(line, separator) {
+                    const result = [];
+                    let current = '';
+                    let inQuotes = false;
+                    for (let i = 0; i < line.length; i++) {
+                        const char = line[i];
+                        if (char === '"' || char === "'") {
+                            inQuotes = !inQuotes;
+                        } else if (char === separator && !inQuotes) {
+                            result.push(current.trim());
+                            current = '';
+                        } else {
+                            current += char;
+                        }
+                    }
+                    result.push(current.trim());
+                    return result;
+                },
+
+                // Sincroniza dinámicamente las tablas de metas anuales con base en los datos de iniciativas
+                syncFinancialsFromInitiatives() {
+                    const qUSDResult = { 'Q1': 0, 'Q2': 0, 'Q3': 0, 'Q4': 0 };
+                    const qProjectsResult = { 'Q1': 0, 'Q2': 0, 'Q3': 0, 'Q4': 0 };
+
+                    this.initiatives.forEach(item => {
+                        const qKey = item.q;
+                        if (qUSDResult[qKey] !== undefined) {
+                            qUSDResult[qKey] += item.usdValue;
+                        }
+                        if (qProjectsResult[qKey] !== undefined) {
+                            if (item.progress >= 100 || item.state === 'Finalizado') {
+                                qProjectsResult[qKey]++;
+                            }
+                        }
+                    });
+
+                    this.quartersUSD.forEach(q => {
+                        q.resultado = qUSDResult[q.name] || 0;
+                    });
+                    this.quartersProjects.forEach(q => {
+                        q.resultado = qProjectsResult[q.name] || 0;
+                    });
+                },
+
+                // Procesamiento y parseo de bases de datos pegadas manualmente
+                importCSVData(textToParse) {
+                    try {
+                        const rawText = textToParse || this.csvPasteArea;
+                        if (!rawText.trim()) {
+                            this.importError = "Los datos están vacíos. Por favor revisa la carga.";
+                            return;
+                        }
+
+                        const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+                        if (lines.length < 2) {
+                            this.importError = "La estructura cargada debe tener al menos la cabecera y una fila de datos.";
+                            return;
+                        }
+
+                        const headerLine = lines[0];
+                        let separator = ';';
+                        if (headerLine.includes('\t')) separator = '\t';
+                        else if (headerLine.includes(';')) separator = ';';
+                        else if (headerLine.includes(',')) separator = ',';
+
+                        const headers = this.parseCSVLine(headerLine, separator).map(h => 
+                            h.replace(/["']/g, "").trim().toLowerCase()
+                        );
+
+                        const idxClave = headers.findIndex(h => h.includes('clave') || h.includes('key'));
+                        const idxResumen = headers.findIndex(h => h.includes('resumen') || h.includes('summary') || h.includes('iniciativa') || h.includes('nombre'));
+                        const idxFase = headers.findIndex(h => h.includes('fase') || h.includes('phase'));
+                        const idxEstado = headers.findIndex(h => h.includes('estado') || h.includes('status'));
+                        const idxQ = headers.findIndex(h => h.includes('q de compromiso') || h === 'q' || h.includes('trimestre') || h.includes('compromiso'));
+                        const idxUSD = headers.findIndex(h => h.includes('valor total por iniciativa') || h.includes('valor de bc neto') || h.includes('usd_k') || h.includes('valor_usd') || h.includes('presupuesto') || h.includes('usd'));
+                        const idxAvance = headers.findIndex(h => h.includes('porcentaje de avance') || h.includes('avance') || h.includes('progreso') || h.includes('progress'));
+                        const idxBloqueo = headers.findIndex(h => h.includes('tipo de bloqueo') || h.includes('bloqueado') || h.includes('blocked'));
+
+                        const parsedList = [];
+                        
+                        for (let i = 1; i < lines.length; i++) {
+                            const rawCols = this.parseCSVLine(lines[i], separator);
+                            if (rawCols.length === 0 || (rawCols.length === 1 && rawCols[0] === "")) continue;
+
+                            let keyVal = idxClave !== -1 ? rawCols[idxClave] : '';
+                            let summaryVal = idxResumen !== -1 ? rawCols[idxResumen] : '';
+                            let name = summaryVal ? (keyVal ? `[${keyVal}] ${summaryVal}` : summaryVal) : `Línea ${i}`;
+
+                            let rawPhase = (idxFase !== -1 ? rawCols[idxFase] : (idxEstado !== -1 ? rawCols[idxEstado] : '')).trim();
+                            let phase = 'Verificación de planificación de la dirección';
+
+                            if (rawPhase) {
+                                const norm = rawPhase.toLowerCase();
+                                if (norm.includes('cierre') || norm.includes('entrega') || norm === 'finalizado' || norm === 'done' || norm === 'resolved') {
+                                    phase = 'Cierre y Entrega';
+                                } else if (norm.includes('implementación') || norm.includes('implementacion')) {
+                                    phase = 'Implementación';
+                                } else if (norm.includes('desarrollo') || norm === 'en desarrollo' || norm === 'in progress') {
+                                    phase = 'En desarrollo';
+                                } else if (norm.includes('pruebas') || norm.includes('testing')) {
+                                    phase = 'Pruebas y acompañamiento al stakeholder';
+                                } else if (norm.includes('socialización') || norm.includes('socializacion')) {
+                                    phase = 'Socialización';
+                                } else if (norm.includes('validación') || norm.includes('validacion')) {
+                                    phase = 'Mesa validación';
+                                } else if (norm.includes('diseño to-be') || norm.includes('to-be') || norm.includes('tobe')) {
+                                    phase = 'Diseño TO-BE';
+                                } else if (norm.includes('kick off') || norm.includes('kickoff')) {
+                                    phase = 'Kick off';
+                                } else if (norm.includes('pre to-be') || norm.includes('pre-to-be')) {
+                                    phase = 'Pre TO-BE';
+                                } else if (norm.includes('as-is') || norm.includes('asis')) {
+                                    phase = 'Análisis AS-IS';
+                                } else if (norm.includes('viabilidad') || norm.includes('feasibility')) {
+                                    phase = 'Análisis de viabilidad';
+                                } else if (norm.includes('planificación') || norm.includes('planificacion') || norm.includes('backlog') || norm === 'to do') {
+                                    phase = 'Verificación de planificación de la dirección';
+                                }
+                            }
+
+                            let matchPhase = this.phases.find(p => p.name.toLowerCase() === phase.toLowerCase()) || this.phases[0];
+
+                            let qVal = idxQ !== -1 ? rawCols[idxQ].toUpperCase().trim() : 'Q1';
+                            if (!['Q1', 'Q2', 'Q3', 'Q4'].includes(qVal)) {
+                                const qMatch = qVal.match(/Q[1-4]/i);
+                                qVal = qMatch ? qMatch[0].toUpperCase() : 'Q1';
+                            }
+
+                            let rawUsd = idxUSD !== -1 ? rawCols[idxUSD] : '0';
+                            rawUsd = rawUsd.replace(/[^0-9.,-]/g, '').replace(',', '.');
+                            let usdValue = parseFloat(rawUsd) || 0;
+                            if (usdValue > 50000) usdValue = Math.round(usdValue / 1000);
+
+                            let rawProgress = idxAvance !== -1 ? rawCols[idxAvance] : '';
+                            rawProgress = rawProgress.replace(/[^0-9.,-]/g, '').replace(',', '.');
+                            let progress = parseFloat(rawProgress);
+                            if (isNaN(progress)) progress = matchPhase.defaultProgress;
+
+                            let rawBlock = idxBloqueo !== -1 ? rawCols[idxBloqueo].toLowerCase().trim() : '';
+                            const isBlocked = rawBlock.length > 0 && rawBlock !== 'no' && rawBlock !== 'none' && rawBlock !== 'false';
+
+                            parsedList.push({
+                                id: Date.now() + i,
+                                name: name,
+                                phase: matchPhase.name,
+                                state: matchPhase.state,
+                                q: qVal,
+                                usdValue: usdValue,
+                                progress: progress,
+                                isBlocked: isBlocked
+                            });
+                        }
+
+                        this.initiatives = parsedList;
+                        this.syncFinancialsFromInitiatives();
+                        
+                        this.importError = null;
+                        this.importSuccess = `¡Excelente! Datos manuales procesados con éxito. Se importaron ${parsedList.length} iniciativas.`;
+                        this.csvPasteArea = '';
+                    } catch (err) {
+                        this.importError = "No se pudo interpretar el formato de los datos: " + err.message;
+                        this.importSuccess = null;
+                    }
+                }
+            }));
+        });
+    </script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="text-slate-100 min-h-screen flex flex-col justify-between selection:bg-emerald-500 selection:text-black bg-[#050811] bg-gradient-to-b from-[#060913] via-[#04060f] to-[#010307]">
+
+    <div x-data="dashboardApp" class="flex-grow p-4 md:p-8 max-w-7xl mx-auto w-full">
+        
+        <header class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8 pb-6 border-b border-slate-800/60">
+            <div>
+                <div class="flex items-center gap-3">
+                    <span class="w-2 h-8 bg-[#00E676] rounded-full inline-block shadow-[0_0_15px_rgba(0,230,118,0.6)]"></span>
+                    <h1 class="text-2xl md:text-3xl font-extrabold tracking-tight flex items-center gap-2">
+                        <span class="text-white" x-text="generalTitle"></span>
+                        <span class="text-[#00E676] font-medium" x-text="generalSubtitle"></span>
+                    </h1>
+                </div>
+                <p class="text-xs text-slate-400 mt-1.5 ml-5" x-text="activeTab === 'resumen' ? 'Maqueta Interactiva • Resumen Financiero y desglose dinámico calculado desde Jira/Sheets.' : (activeTab === 'iniciativas' ? 'Maqueta de Control • Monitoreo de Fases, Estados y Avance Físico-Financiero de Iniciativas.' : 'Cargador de Datos • Modifica la base arrastrando tu archivo CSV o vinculando Google Sheets.')">
+                </p>
+            </div>
+            
+            <div class="flex flex-wrap gap-2">
+                <button 
+                    @click="editMode = !editMode" 
+                    :class="editMode ? 'bg-[#00E676] text-slate-950 font-bold hover:bg-[#00c564]' : 'bg-slate-900/90 hover:bg-slate-800 text-white border border-slate-800'"
+                    class="px-4 py-2.5 rounded-xl text-sm transition-all duration-300 flex items-center gap-2 shadow-lg hover:scale-[1.03]">
+                    <i class="fa-solid" :class="editMode ? 'fa-circle-check text-lg' : 'fa-pen-to-square'"></i>
+                    <span x-text="editMode ? 'Guardar Maqueta' : 'Modo Edición'"></span>
+                </button>
+
+                <button 
+                    @click="resetData()" 
+                    class="px-4 py-2.5 rounded-xl text-sm bg-slate-950/80 hover:bg-slate-900 text-slate-300 border border-slate-800 transition-all duration-300 flex items-center gap-2 hover:scale-[1.03]">
+                    <i class="fa-solid fa-rotate-left"></i>
+                    <span>Restablecer</span>
+                </button>
+            </div>
+        </header>
+
+        <div class="flex border-b border-slate-900 mb-8 overflow-x-auto gap-2">
+            <button 
+                @click="activeTab = 'resumen'" 
+                :class="activeTab === 'resumen' ? 'border-[#00E676] text-[#00E676] font-bold bg-[#00E676]/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-900/10'" 
+                class="py-3 px-6 border-b-2 font-semibold text-sm transition-all flex items-center gap-2.5 whitespace-nowrap rounded-t-2xl">
+                <i class="fa-solid fa-chart-line"></i>
+                <span>Finanzas y Metas Q</span>
+            </button>
+            <button 
+                @click="activeTab = 'iniciativas'" 
+                :class="activeTab === 'iniciativas' ? 'border-[#00E676] text-[#00E676] font-bold bg-[#00E676]/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-900/10'" 
+                class="py-3 px-6 border-b-2 font-semibold text-sm transition-all flex items-center gap-2.5 whitespace-nowrap rounded-t-2xl">
+                <i class="fa-solid fa-folder-tree"></i>
+                <span>Matriz de Iniciativas</span>
+                <span class="bg-emerald-500/20 text-[#00E676] text-[11px] px-2.5 py-0.5 rounded-full font-bold" x-text="initiatives.length"></span>
+            </button>
+            <button 
+                @click="activeTab = 'base_datos'" 
+                :class="activeTab === 'base_datos' ? 'border-[#00E676] text-[#00E676] font-bold bg-[#00E676]/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-900/10'" 
+                class="py-3 px-6 border-b-2 font-semibold text-sm transition-all flex items-center gap-2.5 whitespace-nowrap rounded-t-2xl">
+                <i class="fa-solid fa-database animate-pulse"></i>
+                <span>Sincronizar Sheets / Jira</span>
+            </button>
+        </div>
+
+        <div x-show="activeTab === 'resumen'" x-transition:enter="transition ease-out duration-300" class="space-y-10">
+            <section>
+                <div class="flex items-center gap-2 mb-6">
+                    <span class="w-1.5 h-5 bg-[#00E676] rounded-full inline-block shadow-[0_0_10px_rgba(0,230,118,0.5)]"></span>
+                    <h2 class="text-sm font-bold text-slate-300 uppercase tracking-widest">Resumen Anual</h2>
+                </div>
+
+                <div class="grid grid-cols-12 gap-4 items-center mb-4 hidden md:grid text-xs font-bold text-slate-500 uppercase tracking-widest text-center">
+                    <div class="col-span-3 text-left pl-6">Categoría</div>
+                    <div class="col-span-3">Meta Anual</div>
+                    <div class="col-span-3">Resultado Acumulado</div>
+                    <div class="col-span-3">% Logro</div>
+                </div>
+
+                <div class="space-y-6">
+                    
+                    <div class="bg-[#080d1a]/50 border border-slate-900 rounded-3xl p-5 md:p-7 transition-all duration-300 hover:border-slate-800 hover:bg-[#091024]/60">
+                        <div class="grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
+                            
+                            <div class="col-span-1 md:col-span-3">
+                                <div class="flex flex-col pl-2 border-l-2 border-emerald-500/40">
+                                    <span class="text-[10px] text-[#00E676] font-bold tracking-widest uppercase mb-1">Métrica Principal</span>
+                                    <template x-if="!editMode">
+                                        <h3 class="text-xl font-extrabold text-slate-100 tracking-tight" x-text="rowRevenue.title"></h3>
+                                    </template>
+                                    <template x-if="editMode">
+                                        <input type="text" x-model="rowRevenue.title" class="bg-slate-900/80 text-white font-extrabold rounded-xl px-3 py-1.5 text-base border border-slate-800 focus:outline-none focus:border-[#00E676] w-full">
+                                    </template>
+                                    <span class="text-xs text-slate-500 mt-2">Suma automatizada (USD K)</span>
+                                </div>
+                            </div>
+
+                            <div class="col-span-1 md:col-span-3">
+                                <div class="bg-[#0b1c18]/40 border-2 border-[#00E676]/30 neon-glow-green rounded-2xl p-5 text-center relative overflow-hidden group hover:border-[#00E676] transition-all duration-300">
+                                    <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500 to-[#00E676]"></div>
+                                    <span class="block text-xs text-slate-400 uppercase font-bold mb-2 md:hidden">Meta Anual</span>
+                                    <div class="text-3xl md:text-4xl font-black text-[#00E676] tracking-tight">
+                                        $<span x-text="formatNumber(calculateSum('usd', 'meta'))"></span>K
+                                    </div>
+                                    <span class="text-[9px] text-slate-500 uppercase tracking-widest block mt-1.5 font-bold">USD Planificados</span>
+                                </div>
+                            </div>
+
+                            <div class="col-span-1 md:col-span-3">
+                                <div class="bg-slate-900/40 border border-slate-800 rounded-2xl p-5 text-center relative overflow-hidden transition-all duration-300 hover:border-slate-700">
+                                    <div class="absolute top-0 left-0 w-full h-1 bg-slate-700"></div>
+                                    <span class="block text-xs text-slate-400 uppercase font-bold mb-2 md:hidden">Resultado Anual</span>
+                                    <div class="text-3xl md:text-4xl font-black text-slate-100 tracking-tight">
+                                        $<span x-text="formatNumber(calculateSum('usd', 'resultado'))"></span>K
+                                    </div>
+                                    <span class="text-[9px] text-slate-500 uppercase tracking-widest block mt-1.5 font-bold">USD de Iniciativas Cargadas</span>
+                                </div>
+                            </div>
+
+                            <div class="col-span-1 md:col-span-3 flex flex-col items-center justify-center">
+                                <span class="block text-xs text-slate-400 uppercase font-bold mb-2 md:hidden">Porcentaje Logro</span>
+                                <div class="text-3xl md:text-4xl font-black text-amber-400 tracking-tight mb-3" x-text="calculatePercentage(calculateSum('usd', 'resultado'), calculateSum('usd', 'meta')) + '%'"></div>
+                                
+                                <div class="w-full max-w-[220px] bg-slate-900 h-3 rounded-full overflow-hidden p-0.5 border border-slate-800">
+                                    <div class="bg-gradient-to-r from-amber-500 to-amber-300 h-full rounded-full transition-all duration-500" 
+                                         :style="'width: ' + Math.min(calculatePercentage(calculateSum('usd', 'resultado'), calculateSum('usd', 'meta')), 100) + '%'"></div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+
+                    <div class="bg-[#080d1a]/50 border border-slate-900 rounded-3xl p-5 md:p-7 transition-all duration-300 hover:border-slate-800 hover:bg-[#091024]/60">
+                        <div class="grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
+                            
+                            <div class="col-span-1 md:col-span-3">
+                                <div class="flex flex-col pl-2 border-l-2 border-emerald-500/40">
+                                    <span class="text-[10px] text-[#00E676] font-bold tracking-widest uppercase mb-1">Métrica Secundaria</span>
+                                    <template x-if="!editMode">
+                                        <h3 class="text-xl font-extrabold text-slate-100 tracking-tight" x-text="rowProjects.title"></h3>
+                                    </template>
+                                    <template x-if="editMode">
+                                        <input type="text" x-model="rowProjects.title" class="bg-slate-900/80 text-white font-extrabold rounded-xl px-3 py-1.5 text-base border border-slate-800 focus:outline-none focus:border-[#00E676] w-full">
+                                    </template>
+                                    <span class="text-xs text-slate-500 mt-2">Proyectos con Avance al 100%</span>
+                                </div>
+                            </div>
+
+                            <div class="col-span-1 md:col-span-3">
+                                <div class="bg-[#0b1c18]/40 border-2 border-[#00E676]/30 neon-glow-green rounded-2xl p-5 text-center relative overflow-hidden group hover:border-[#00E676] transition-all duration-300">
+                                    <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500 to-[#00E676]"></div>
+                                    <span class="block text-xs text-slate-400 uppercase font-bold mb-2 md:hidden">Meta Proyectos</span>
+                                    <div class="text-3xl md:text-4xl font-black text-[#00E676] tracking-tight">
+                                        <span x-text="calculateSum('proyectos', 'meta')"></span>
+                                    </div>
+                                    <span class="text-[9px] text-slate-500 uppercase tracking-widest block mt-1.5 font-bold">Meta Anual de Proyectos</span>
+                                </div>
+                            </div>
+
+                            <div class="col-span-1 md:col-span-3">
+                                <div class="bg-slate-900/40 border border-slate-800 rounded-2xl p-5 text-center relative overflow-hidden transition-all duration-300 hover:border-slate-700">
+                                    <div class="absolute top-0 left-0 w-full h-1 bg-slate-700"></div>
+                                    <span class="block text-xs text-slate-400 uppercase font-bold mb-2 md:hidden">Proyectos Ejecutados</span>
+                                    <div class="text-3xl md:text-4xl font-black text-slate-100 tracking-tight">
+                                        <span x-text="calculateSum('proyectos', 'resultado')"></span>
+                                    </div>
+                                    <span class="text-[9px] text-slate-500 uppercase tracking-widest block mt-1.5 font-bold">Proyectos Finalizados (100% Avance)</span>
+                                </div>
+                            </div>
+
+                            <div class="col-span-1 md:col-span-3 flex flex-col items-center justify-center">
+                                <span class="block text-xs text-slate-400 uppercase font-bold mb-2 md:hidden">Porcentaje Logro</span>
+                                <div class="text-3xl md:text-4xl font-black text-amber-400 tracking-tight mb-3" x-text="calculatePercentage(calculateSum('proyectos', 'resultado'), calculateSum('proyectos', 'meta')) + '%'"></div>
+                                
+                                <div class="w-full max-w-[220px] bg-slate-900 h-3 rounded-full overflow-hidden p-0.5 border border-slate-800">
+                                    <div class="bg-gradient-to-r from-amber-500 to-amber-300 h-full rounded-full transition-all duration-500" 
+                                         :style="'width: ' + Math.min(calculatePercentage(calculateSum('proyectos', 'resultado'), calculateSum('proyectos', 'meta')), 100) + '%'"></div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+            <section>
+                <div class="flex items-center gap-2 mb-6">
+                    <span class="w-1.5 h-5 bg-[#00E676] rounded-full inline-block shadow-[0_0_10px_rgba(0,230,118,0.5)]"></span>
+                    <h2 class="text-sm font-bold text-slate-300 uppercase tracking-widest">Desglose trimestral por Q</h2>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    
+                    <div class="bg-[#070b14]/90 border border-slate-900 rounded-3xl p-6 shadow-xl relative overflow-hidden">
+                        <div class="absolute top-0 left-0 w-1 h-full bg-[#00E676]/60"></div>
+                        <div class="flex items-center justify-between mb-6 pb-3 border-b border-slate-900">
+                            <h3 class="text-sm font-extrabold text-slate-100 tracking-wide flex items-center gap-2">
+                                <span class="w-2.5 h-2.5 bg-[#00E676] rounded-full animate-pulse"></span>
+                                <span>Presupuesto total por Q - <span class="text-[#00E676]" x-text="rowRevenue.title"></span></span>
+                            </h3>
+                            <span class="text-[10px] text-slate-400 font-bold bg-slate-900/80 px-3 py-1 rounded-full border border-slate-800 tracking-wider">USD (En Miles)</span>
+                        </div>
+
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm text-left text-slate-300">
+                                <thead class="text-xs uppercase bg-slate-950/60 text-[#00E676] font-bold border-b border-slate-900">
+                                    <tr>
+                                        <th scope="col" class="px-4 py-4 rounded-l-xl">Trimestre</th>
+                                        <th scope="col" class="px-4 py-4 text-right">Meta (USD K)</th>
+                                        <th scope="col" class="px-4 py-4 text-right">Resultado (Jira/Sheets USD K)</th>
+                                        <th scope="col" class="px-4 py-4 text-right rounded-r-xl">% Logro</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-900">
+                                    <template x-for="(qData, index) in quartersUSD" :key="'usd-'+index">
+                                        <tr class="hover:bg-slate-900/35 transition-colors">
+                                            <td class="px-4 py-4 font-bold text-slate-200" x-text="qData.name"></td>
+                                            
+                                            <td class="px-4 py-4 text-right font-medium">
+                                                <template x-if="!editMode">
+                                                    <span>$<span x-text="formatNumber(qData.meta)"></span> K</span>
+                                                </template>
+                                                <template x-if="editMode">
+                                                    <div class="flex justify-end">
+                                                        <input type="number" x-model.number="qData.meta" class="w-24 bg-slate-900 text-right text-emerald-400 font-semibold px-2.5 py-1 rounded-lg border border-slate-800 focus:outline-none focus:border-[#00E676] text-xs">
+                                                    </div>
+                                                </template>
+                                            </td>
+                                            
+                                            <td class="px-4 py-4 text-right font-medium">
+                                                <template x-if="!editMode">
+                                                    <span>$<span x-text="formatNumber(qData.resultado)"></span> K</span>
+                                                </template>
+                                                <template x-if="editMode">
+                                                    <div class="flex justify-end">
+                                                        <input type="number" x-model.number="qData.resultado" class="w-24 bg-slate-900 text-right text-slate-200 font-semibold px-2.5 py-1 rounded-lg border border-slate-800 focus:outline-none focus:border-[#00E676] text-xs">
+                                                    </div>
+                                                </template>
+                                            </td>
+                                            
+                                            <td class="px-4 py-4 text-right font-bold" 
+                                                :class="parseFloat(calculatePercentage(qData.resultado, qData.meta)) >= 100 ? 'text-[#00E676]' : 'text-amber-500'"
+                                                x-text="calculatePercentage(qData.resultado, qData.meta) + '%'">
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                                <tfoot class="bg-slate-950/60 font-black border-t border-slate-800 text-slate-100">
+                                    <tr>
+                                        <td class="px-4 py-4 uppercase text-xs tracking-wider">Total Anual</td>
+                                        <td class="px-4 py-4 text-right text-[#00E676] font-extrabold">$<span x-text="formatNumber(calculateSum('usd', 'meta'))"></span>K</td>
+                                        <td class="px-4 py-4 text-right font-extrabold">$<span x-text="formatNumber(calculateSum('usd', 'resultado'))"></span>K</td>
+                                        <td class="px-4 py-4 text-right text-amber-400 font-black" x-text="calculatePercentage(calculateSum('usd', 'resultado'), calculateSum('usd', 'meta')) + '%'"></td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="bg-[#070b14]/90 border border-slate-900 rounded-3xl p-6 shadow-xl relative overflow-hidden">
+                        <div class="absolute top-0 left-0 w-1 h-full bg-[#00E676]/60"></div>
+                        <div class="flex items-center justify-between mb-6 pb-3 border-b border-slate-900">
+                            <h3 class="text-sm font-extrabold text-slate-100 tracking-wide flex items-center gap-2">
+                                <span class="w-2.5 h-2.5 bg-[#00E676] rounded-full animate-pulse"></span>
+                                <span>Desglose Q - <span class="text-[#00E676]" x-text="rowProjects.title"></span></span>
+                            </h3>
+                            <span class="text-[10px] text-slate-400 font-bold bg-slate-900/80 px-3 py-1 rounded-full border border-slate-800 tracking-wider">Unidades</span>
+                        </div>
+
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm text-left text-slate-300">
+                                <thead class="text-xs uppercase bg-slate-950/60 text-[#00E676] font-bold border-b border-slate-900">
+                                    <tr>
+                                        <th scope="col" class="px-4 py-4 rounded-l-xl">Trimestre</th>
+                                        <th scope="col" class="px-4 py-4 text-right">Meta (Proy.)</th>
+                                        <th scope="col" class="px-4 py-4 text-right">Completados (100% Avance)</th>
+                                        <th scope="col" class="px-4 py-4 text-right rounded-r-xl">% Logro</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-900">
+                                    <template x-for="(qData, index) in quartersProjects" :key="'proj-'+index">
+                                        <tr class="hover:bg-slate-900/35 transition-colors">
+                                            <td class="px-4 py-4 font-bold text-slate-200" x-text="qData.name"></td>
+                                            
+                                            <td class="px-4 py-4 text-right font-medium">
+                                                <template x-if="!editMode">
+                                                    <span x-text="qData.meta"></span>
+                                                </template>
+                                                <template x-if="editMode">
+                                                    <div class="flex justify-end">
+                                                        <input type="number" x-model.number="qData.meta" class="w-20 bg-slate-900 text-right text-emerald-400 font-semibold px-2.5 py-1 rounded-lg border border-slate-800 focus:outline-none focus:border-[#00E676] text-xs">
+                                                    </div>
+                                                </template>
+                                            </td>
+                                            
+                                            <td class="px-4 py-4 text-right font-medium">
+                                                <template x-if="!editMode">
+                                                    <span x-text="qData.resultado"></span>
+                                                </template>
+                                                <template x-if="editMode">
+                                                    <div class="flex justify-end">
+                                                        <input type="number" x-model.number="qData.resultado" class="w-20 bg-slate-900 text-right text-slate-200 font-semibold px-2.5 py-1 rounded-lg border border-slate-800 focus:outline-none focus:border-[#00E676] text-xs">
+                                                    </div>
+                                                </template>
+                                            </td>
+                                            
+                                            <td class="px-4 py-4 text-right font-bold" 
+                                                :class="parseFloat(calculatePercentage(qData.resultado, qData.meta)) >= 100 ? 'text-[#00E676]' : 'text-amber-500'"
+                                                x-text="calculatePercentage(qData.resultado, qData.meta) + '%'">
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                                <tfoot class="bg-slate-950/60 font-black border-t border-slate-800 text-slate-100">
+                                    <tr>
+                                        <td class="px-4 py-4 uppercase text-xs tracking-wider">Total Anual</td>
+                                        <td class="px-4 py-4 text-right text-[#00E676] font-extrabold" x-text="calculateSum('proyectos', 'meta')"></td>
+                                        <td class="px-4 py-4 text-right font-extrabold" x-text="calculateSum('proyectos', 'resultado')"></td>
+                                        <td class="px-4 py-4 text-right text-amber-400 font-black" x-text="calculatePercentage(calculateSum('proyectos', 'resultado'), calculateSum('proyectos', 'meta')) + '%'"></td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+        </div>
+
+        <div x-show="activeTab === 'iniciativas'" x-transition:enter="transition ease-out duration-300" class="space-y-8" style="display: none;">
+            
+            <div class="bg-[#080d1a]/60 border border-slate-900 p-4 rounded-3xl flex flex-col md:flex-row items-center justify-between gap-4 shadow-xl">
+                <div class="flex items-center gap-3">
+                    <i class="fa-solid fa-filter text-[#00E676] text-sm shadow-[0_0_8px_rgba(0,230,118,0.4)]"></i>
+                    <span class="text-sm font-semibold text-slate-300">Filtrar Matriz por Temporalidad del Plan:</span>
+                </div>
+                <div class="flex flex-wrap gap-1.5 bg-[#03060c] p-1.5 rounded-2xl border border-slate-900/80">
+                    <template x-for="q in ['Todos', 'Q1', 'Q2', 'Q3', 'Q4']">
+                        <button 
+                            @click="selectedQFilter = q"
+                            :class="selectedQFilter === q ? 'bg-[#00E676] text-slate-950 font-extrabold shadow-[0_0_12px_rgba(0,230,118,0.25)]' : 'text-slate-400 hover:text-slate-200'"
+                            class="px-5 py-2 rounded-xl text-xs transition-all duration-300 font-semibold"
+                            x-text="q === 'Todos' ? 'Todos los Q' : q">
+                        </button>
+                    </template>
+                </div>
+            </div>
+
+            <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                
+                <div class="bg-[#070b14]/90 border border-slate-900 rounded-3xl p-5 relative overflow-hidden hover:border-slate-800 transition-all duration-300">
+                    <div class="absolute top-0 left-0 w-1.5 h-full bg-[#00E676]"></div>
+                    <span class="text-[10px] text-slate-400 uppercase font-bold tracking-widest block mb-1">Iniciativas en Vista</span>
+                    <div class="flex items-baseline gap-2 mt-2">
+                        <span class="text-3xl font-black text-[#00E676] tracking-tight" x-text="getFilteredInitiatives().length"></span>
+                        <span class="text-xs text-slate-500 font-medium" x-text="'de ' + initiatives.length + ' totales'"></span>
+                    </div>
+                    <div class="text-[10px] text-slate-500 mt-2.5 flex items-center gap-1.5 font-semibold">
+                        <i class="fa-solid fa-folder-open text-[#00E676]/60"></i>
+                        <span>Portafolio Sincronizado</span>
+                    </div>
+                </div>
+
+                <div class="bg-[#070b14]/90 border border-slate-900 rounded-3xl p-5 relative overflow-hidden hover:border-slate-800 transition-all duration-300">
+                    <div class="absolute top-0 left-0 w-1.5 h-full bg-[#00E676]"></div>
+                    <span class="text-[10px] text-slate-400 uppercase font-bold tracking-widest block mb-1">Presupuesto Portafolio (USD)</span>
+                    <div class="flex items-baseline gap-1 mt-2">
+                        <span class="text-3xl font-black text-slate-100 tracking-tight">$</span>
+                        <span class="text-3xl font-black text-slate-100 tracking-tight" x-text="formatNumber(getFilteredUSDTotal()) + ' K'"></span>
+                    </div>
+                    <div class="text-[10px] text-slate-500 mt-2.5 flex items-center gap-1.5 font-semibold">
+                        <i class="fa-solid fa-coins text-[#00E676]/60"></i>
+                        <span>Suma de valor por iniciativa</span>
+                    </div>
+                </div>
+
+                <div class="bg-[#070b14]/90 border border-slate-900 rounded-3xl p-5 relative overflow-hidden hover:border-slate-800 transition-all duration-300">
+                    <div class="absolute top-0 left-0 w-1.5 h-full bg-amber-500"></div>
+                    <span class="text-[10px] text-slate-400 uppercase font-bold tracking-widest block mb-1">Avance Físico Global</span>
+                    <div class="flex items-baseline gap-1 mt-2">
+                        <span class="text-3xl font-black text-amber-400 tracking-tight" x-text="getFilteredAvgProgress() + '%'"></span>
+                    </div>
+                    <div class="w-full max-w-full bg-slate-950 h-2 rounded-full mt-3 overflow-hidden p-0.5 border border-slate-900">
+                        <div class="bg-gradient-to-r from-amber-500 to-amber-300 h-full rounded-full transition-all duration-500" :style="'width: ' + getFilteredAvgProgress() + '%'"></div>
+                    </div>
+                </div>
+
+                <div class="bg-[#070b14]/90 border border-slate-900 rounded-3xl p-5 relative overflow-hidden hover:border-slate-800 transition-all duration-300">
+                    <div class="absolute top-0 left-0 w-1.5 h-full bg-rose-500"></div>
+                    <span class="text-[10px] text-slate-400 uppercase font-bold tracking-widest block mb-1">Iniciativas Críticas</span>
+                    <div class="flex items-baseline gap-2 mt-2">
+                        <span class="text-3xl font-black text-rose-500 tracking-tight" x-text="getFilteredCriticalCount()"></span>
+                        <span class="text-xs text-slate-500 font-medium">En Bloqueo</span>
+                    </div>
+                    <div class="text-[10px] text-slate-500 mt-2.5 flex items-center gap-1.5 font-semibold">
+                        <i class="fa-solid fa-lock text-rose-500/80 animate-pulse"></i>
+                        <span class="text-rose-500/80">Stand-by (Filtro Jira/Sheets)</span>
+                    </div>
+                </div>
+
+            </section>
+
+            <section class="bg-[#070b14]/90 border border-slate-900 rounded-3xl p-5 md:p-7 shadow-xl overflow-hidden relative">
+                <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-slate-500 via-blue-500 via-amber-500 via-emerald-500 to-teal-400"></div>
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 pb-4 border-b border-slate-900">
+                    <div>
+                        <h3 class="text-lg font-extrabold text-slate-100 flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 bg-[#00E676] rounded-full shadow-[0_0_8px_rgba(0,230,118,0.5)] animate-pulse"></span>
+                            <span>Matriz de Distribución de Fases y Estados</span>
+                        </h3>
+                        <p class="text-xs text-slate-400 mt-1">
+                            Distribución de tus iniciativas de Jira y Google Sheets a través del ciclo metodológico de transformación.
+                        </p>
+                    </div>
+                    <span class="text-xs text-[#00E676] bg-emerald-500/10 px-3.5 py-1.5 rounded-full border border-emerald-500/20 font-bold uppercase tracking-widest" x-text="'Vista: ' + (selectedQFilter === 'Todos' ? 'Todos los Q' : selectedQFilter)"></span>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left text-slate-300 border-collapse">
+                        <thead>
+                            <tr class="bg-slate-950/60 border-b border-slate-900">
+                                <th class="p-4 text-[10px] uppercase font-black text-slate-500 tracking-wider w-1/4 min-w-[200px] border-r border-slate-900">
+                                    Fase \ Estado
+                                </th>
+                                <template x-for="state in states" :key="state.id">
+                                    <th class="p-4 text-center w-1/5 min-w-[155px] border-r border-slate-900 last:border-r-0 relative">
+                                        <div class="absolute top-0 left-0 w-full h-1" :class="state.barColor"></div>
+                                        <div class="flex flex-col items-center pt-2">
+                                            <span class="text-xs font-black text-slate-200" x-text="state.name"></span>
+                                            <span class="mt-1.5 px-3 py-0.5 rounded-md text-[10px] font-extrabold bg-slate-900/80 border text-slate-300" :class="state.borderStyle" x-text="state.range"></span>
+                                        </div>
+                                    </th>
+                                </template>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="phase in phases" :key="phase.name">
+                                <tr class="border-b border-slate-900/60 hover:bg-slate-900/15 transition-all">
+                                    
+                                    <td class="p-4 font-bold text-slate-200 bg-slate-950/20 border-r border-slate-900 text-xs">
+                                        <div class="flex items-center gap-2">
+                                            <span class="w-2 h-2 rounded-full" :class="states.find(s => s.id === phase.state)?.barColor || 'bg-slate-500'"></span>
+                                            <span x-text="phase.name"></span>
+                                        </div>
+                                    </td>
+
+                                    <template x-for="state in states" :key="state.id">
+                                        <td class="p-3 text-center border-r border-slate-900/40 last:border-r-0 relative">
+                                            <div class="rounded-2xl p-3 transition-all duration-300"
+                                                 :class="[
+                                                     getMatrixCell(phase.name, state.id).count > 0 
+                                                         ? (getMatrixCell(phase.name, state.id).hasBlocked 
+                                                             ? 'bg-rose-950/20 border border-rose-500/30 shadow-[0_0_10px_rgba(239,68,68,0.1)]' 
+                                                             : 'bg-[#0a0f1d] border border-slate-800/80 hover:border-[#00E676]/40 hover:shadow-[0_0_12px_rgba(0,230,118,0.1)]')
+                                                         : 'bg-transparent opacity-20'
+                                                 ]">
+                                                
+                                                <template x-if="getMatrixCell(phase.name, state.id).count > 0">
+                                                    <div class="flex flex-col items-center justify-center gap-1">
+                                                        <div class="flex items-center gap-1">
+                                                            <template x-if="getMatrixCell(phase.name, state.id).hasBlocked">
+                                                                <i class="fa-solid fa-lock text-rose-500 text-xs animate-pulse"></i>
+                                                            </template>
+                                                            <template x-if="!getMatrixCell(phase.name, state.id).hasBlocked">
+                                                                <i class="fa-solid fa-folder-tree text-xs" :class="state.textLight"></i>
+                                                            </template>
+                                                            <span class="text-sm font-black text-white" x-text="getMatrixCell(phase.name, state.id).count"></span>
+                                                            <span class="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Proy.</span>
+                                                        </div>
+                                                        <div class="text-[11px] font-bold text-amber-400 mt-1 bg-amber-500/10 py-0.5 px-2 rounded-lg border border-amber-500/10">
+                                                            $<span x-text="formatNumber(getMatrixCell(phase.name, state.id).usdValue)"></span> K
+                                                        </div>
+                                                    </div>
+                                                </template>
+
+                                                <template x-if="getMatrixCell(phase.name, state.id).count === 0">
+                                                    <span class="text-[10px] text-slate-700 block py-1" x-text="phase.state === state.id ? '○' : '-'"></span>
+                                                </template>
+
+                                            </div>
+                                        </td>
+                                    </template>
+
+                                </tr>
+                            </template>
+                        </tbody>
+                        
+                        <tfoot>
+                            <tr class="bg-slate-950/40 border-t border-slate-900 font-semibold text-xs text-slate-400">
+                                <td class="p-4 border-r border-slate-900 uppercase tracking-widest font-extrabold text-[10px]">Total Proyectos</td>
+                                <template x-for="state in states" :key="state.id">
+                                    <td class="p-4 text-center border-r border-slate-900 last:border-r-0">
+                                        <div class="flex items-center justify-center gap-1.5">
+                                            <i class="fa-solid fa-diagram-project text-xs text-slate-500"></i>
+                                            <span class="text-sm font-black text-slate-100" x-text="getStateTotals(state.id).count"></span>
+                                        </div>
+                                    </td>
+                                </template>
+                            </tr>
+
+                            <tr class="bg-slate-950/40 border-t border-slate-900/60 font-semibold text-xs text-slate-400">
+                                <td class="p-4 border-r border-slate-900 uppercase tracking-widest font-extrabold text-[10px]">Total Presupuesto</td>
+                                <template x-for="state in states" :key="state.id">
+                                    <td class="p-4 text-center border-r border-slate-900 last:border-r-0">
+                                        <span class="text-xs font-extrabold text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/10 inline-block" x-text="'$' + formatNumber(getStateTotals(state.id).usdValue) + ' K'"></span>
+                                    </td>
+                                </template>
+                            </tr>
+
+                            <tr class="bg-slate-950/80 border-t-2 border-slate-800 text-xs text-slate-200">
+                                <td class="p-4 border-r border-slate-900 uppercase font-black tracking-widest text-[10px] flex items-center gap-2">
+                                    <i class="fa-solid fa-chart-simple text-amber-500"></i>
+                                    <span>% Avance Promedio</span>
+                                </td>
+                                <template x-for="state in states" :key="state.id">
+                                    <td class="p-4 text-center border-r border-slate-900 last:border-r-0 font-extrabold">
+                                        <div class="flex flex-col items-center gap-1.5">
+                                            <span class="text-sm font-black text-amber-400" x-text="getStateAvgProgress(state.id) + '%'"></span>
+                                            <div class="w-20 bg-slate-900 h-1.5 rounded-full overflow-hidden p-0.5 border border-slate-800">
+                                                <div class="h-full rounded-full transition-all duration-500 bg-amber-400" :style="'width: ' + getStateAvgProgress(state.id) + '%'"></div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                </template>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                <div class="bg-slate-950/80 border border-slate-900 rounded-2xl p-4 mt-6 text-xs text-slate-400">
+                    <div class="flex items-start gap-2.5">
+                        <i class="fa-solid fa-triangle-exclamation text-rose-500 text-sm mt-0.5 animate-pulse"></i>
+                        <div>
+                            <strong class="text-rose-400">Bloqueado / Stand-by:</strong> El proyecto se encuentra pausado (Mapeado de la columna de bloqueo de Jira o Google Sheets).
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="bg-[#070b14]/90 border border-slate-900 rounded-3xl p-5 md:p-7 shadow-xl">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 pb-3 border-b border-slate-900">
+                    <div>
+                        <h3 class="text-sm font-bold text-slate-200 uppercase tracking-widest flex items-center gap-2">
+                            <i class="fa-solid fa-list-check text-[#00E676]"></i>
+                            <span>Listado y Administración de Iniciativas</span>
+                        </h3>
+                        <p class="text-xs text-slate-500 mt-1" x-text="editMode ? 'Modo Edición Activado: Edita celdas directamente, agrega nuevas iniciativas o elimínalas.' : 'Visualizando base de datos sincronizada.'"></p>
+                    </div>
+                    
+                    <template x-if="editMode">
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-[#00E676] bg-[#00E676]/10 px-3 py-1.5 rounded-xl border border-emerald-500/20 font-bold uppercase tracking-wider"><i class="fa-solid fa-pen-nib mr-1.5"></i>Editor Activo</span>
+                        </div>
+                    </template>
+                </div>
+
+                <div x-show="editMode" x-transition:enter="transition ease-out duration-200" class="bg-slate-900/30 p-5 rounded-2xl border border-slate-800/80 mb-6 space-y-4">
+                    <h4 class="text-xs font-bold text-slate-300 uppercase tracking-widest flex items-center gap-2">
+                        <i class="fa-solid fa-plus-circle text-[#00E676] text-sm"></i>
+                        <span>Agregar Nueva Iniciativa</span>
+                    </h4>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+                        
+                        <div class="flex flex-col">
+                            <label class="text-[10px] text-slate-400 uppercase font-bold mb-1.5 tracking-wider">Nombre Iniciativa</label>
+                            <input type="text" x-model="newInitiative.name" placeholder="Ej: Implementación de CRM" class="bg-slate-950 text-white text-xs rounded-xl p-2.5 border border-slate-800 focus:outline-none focus:border-[#00E676] font-medium">
+                        </div>
+
+                        <div class="flex flex-col">
+                            <label class="text-[10px] text-slate-400 uppercase font-bold mb-1.5 tracking-wider">Fase del Proceso</label>
+                            <select x-model="newInitiative.phase" @change="onPhaseChange(newInitiative)" class="bg-slate-950 text-white text-xs rounded-xl p-2.5 border border-slate-800 focus:outline-none focus:border-[#00E676] font-medium">
+                                <template x-for="p in phases">
+                                    <option :value="p.name" x-text="p.name"></option>
+                                </template>
+                            </select>
+                        </div>
+
+                        <div class="flex flex-col">
+                            <label class="text-[10px] text-slate-400 uppercase font-bold mb-1.5 tracking-wider">Estado de Avance</label>
+                            <div class="bg-slate-950/80 text-[#00E676] text-xs rounded-xl p-2.5 border border-slate-900 font-bold uppercase tracking-wider" x-text="newInitiative.state"></div>
+                        </div>
+
+                        <div class="flex flex-col">
+                            <label class="text-[10px] text-slate-400 uppercase font-bold mb-1.5 tracking-wider">Trimestre (Q)</label>
+                            <select x-model="newInitiative.q" class="bg-slate-950 text-white text-xs rounded-xl p-2.5 border border-slate-800 focus:outline-none focus:border-[#00E676] font-medium">
+                                <option value="Q1">Q1</option>
+                                <option value="Q2">Q2</option>
+                                <option value="Q3">Q3</option>
+                                <option value="Q4">Q4</option>
+                            </select>
+                        </div>
+
+                        <div class="flex flex-col">
+                            <label class="text-[10px] text-slate-400 uppercase font-bold mb-1.5 tracking-wider">Valor USD ($ K)</label>
+                            <input type="number" x-model.number="newInitiative.usdValue" class="bg-slate-950 text-white text-xs rounded-xl p-2.5 border border-slate-800 focus:outline-none focus:border-[#00E676] font-medium">
+                        </div>
+
+                        <div class="flex flex-col">
+                            <label class="text-[10px] text-slate-400 uppercase font-bold mb-1.5 tracking-wider">% Avance Físico</label>
+                            <input type="number" min="0" max="100" x-model.number="newInitiative.progress" class="bg-slate-950 text-white text-xs rounded-xl p-2.5 border border-slate-800 focus:outline-none focus:border-[#00E676] font-medium">
+                        </div>
+
+                    </div>
+
+                    <div class="flex items-center gap-2 bg-slate-950/50 p-3 rounded-xl border border-slate-800 w-fit">
+                        <input type="checkbox" id="chkBlocked" x-model="newInitiative.isBlocked" class="w-4 h-4 accent-rose-500 rounded cursor-pointer">
+                        <label for="chkBlocked" class="text-xs text-rose-400 font-bold cursor-pointer flex items-center gap-1.5">
+                            <i class="fa-solid fa-circle-exclamation"></i>
+                            <span>Marcar como Bloqueado / Stand-by</span>
+                        </label>
+                    </div>
+
+                    <div class="flex justify-end pt-3">
+                        <button 
+                            @click="addInitiative()" 
+                            class="bg-[#00E676] text-slate-950 text-xs font-black px-6 py-3 rounded-xl hover:bg-[#00c564] transition-all flex items-center gap-2 shadow-lg hover:scale-[1.02]">
+                            <i class="fa-solid fa-plus-circle text-sm"></i>
+                            <span>Agregar al Portafolio</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-xs text-left text-slate-300">
+                        <thead class="bg-slate-950/60 uppercase text-slate-400 border-b border-slate-900 font-bold">
+                            <tr>
+                                <th scope="col" class="px-5 py-4 rounded-l-xl">Iniciativa (Clave + Resumen)</th>
+                                <th scope="col" class="px-5 py-4">Q</th>
+                                <th scope="col" class="px-5 py-4">Fase</th>
+                                <th scope="col" class="px-5 py-4">Estado</th>
+                                <th scope="col" class="px-5 py-4 text-right">Valor Presupuesto</th>
+                                <th scope="col" class="px-5 py-4 text-center">Avance Físico</th>
+                                <th x-show="editMode" scope="col" class="px-5 py-4 text-center w-[110px] rounded-r-xl">Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-900">
+                            <template x-for="item in getFilteredInitiatives()" :key="item.id">
+                                <tr class="hover:bg-slate-900/30 transition-colors" :class="item.isBlocked ? 'bg-rose-950/5' : ''">
+                                    
+                                    <td class="px-5 py-4 font-bold text-slate-200">
+                                        <div class="flex items-center gap-2">
+                                            <template x-if="item.isBlocked">
+                                                <span class="text-rose-500 text-xs flex items-center gap-1 bg-rose-500/10 px-2 py-0.5 rounded-md border border-rose-500/20" title="Stand-by / Bloqueado">
+                                                    <i class="fa-solid fa-lock animate-pulse"></i> Stand-by
+                                                </span>
+                                            </template>
+                                            <template x-if="!editMode">
+                                                <span x-text="item.name" class="tracking-tight text-sm"></span>
+                                            </template>
+                                            <template x-if="editMode">
+                                                <input type="text" x-model="item.name" class="bg-slate-900 text-white font-bold rounded-lg px-2.5 py-1 border border-slate-800 focus:outline-none w-full max-w-[240px] text-xs">
+                                            </template>
+                                        </div>
+                                    </td>
+
+                                    <td class="px-5 py-4 text-slate-400 font-semibold">
+                                        <template x-if="!editMode">
+                                            <span x-text="item.q"></span>
+                                        </template>
+                                        <template x-if="editMode">
+                                            <select x-model="item.q" @change="syncFinancialsFromInitiatives()" class="bg-slate-900 text-white rounded-lg px-2 py-1 border border-slate-800 focus:outline-none font-semibold">
+                                                <option value="Q1">Q1</option>
+                                                <option value="Q2">Q2</option>
+                                                <option value="Q3">Q3</option>
+                                                <option value="Q4">Q4</option>
+                                            </select>
+                                        </template>
+                                    </td>
+
+                                    <td class="px-5 py-4 font-semibold text-slate-300">
+                                        <template x-if="!editMode">
+                                            <span x-text="item.phase"></span>
+                                        </template>
+                                        <template x-if="editMode">
+                                            <select x-model="item.phase" @change="onPhaseChange(item); syncFinancialsFromInitiatives()" class="bg-slate-900 text-white rounded-lg px-2 py-1 border border-slate-800 focus:outline-none font-semibold w-full max-w-[220px]">
+                                                <template x-for="p in phases">
+                                                    <option :value="p.name" x-text="p.name"></option>
+                                                </template>
+                                            </select>
+                                        </template>
+                                    </td>
+
+                                    <td class="px-5 py-4 font-bold">
+                                        <span class="px-2.5 py-1 rounded-md bg-slate-950/40 border border-slate-900"
+                                              :class="{
+                                                  'text-slate-400 border-slate-700': item.state === 'Backlog',
+                                                  'text-blue-400 border-blue-900/50': item.state === 'En evaluación',
+                                                  'text-amber-400 border-amber-900/50': item.state === 'En curso',
+                                                  'text-emerald-400 border-emerald-900/50': item.state === 'Seg. / Impl.',
+                                                  'text-teal-400 border-teal-900/50': item.state === 'Finalizado'
+                                              }" 
+                                              x-text="item.state">
+                                        </span>
+                                    </td>
+
+                                    <td class="px-5 py-4 text-right text-amber-400 font-extrabold text-sm">
+                                        <template x-if="!editMode">
+                                            <span>$<span x-text="formatNumber(item.usdValue)"></span> K</span>
+                                        </template>
+                                        <template x-if="editMode">
+                                            <div class="flex justify-end gap-1 items-center">
+                                                <span>$</span>
+                                                <input type="number" x-model.number="item.usdValue" @input="syncFinancialsFromInitiatives()" class="w-20 bg-slate-900 text-right text-amber-400 font-black px-2 py-1 rounded-lg border border-slate-800">
+                                                <span>K</span>
+                                            </div>
+                                        </template>
+                                    </td>
+
+                                    <td class="px-5 py-4">
+                                        <div class="flex items-center justify-center gap-3">
+                                            <template x-if="!editMode">
+                                                <span class="font-bold text-slate-100 w-10 text-right" x-text="item.progress + '%'"></span>
+                                            </template>
+                                            <template x-if="editMode">
+                                                <input type="number" min="0" max="100" x-model.number="item.progress" @input="syncFinancialsFromInitiatives()" class="w-14 bg-slate-900 text-center font-black px-2 py-1 rounded-lg border border-slate-800">
+                                            </template>
+                                            
+                                            <div class="w-16 bg-slate-950 h-2 rounded-full overflow-hidden p-0.5 border border-slate-900 hidden sm:block">
+                                                <div class="h-full rounded-full" :class="item.isBlocked ? 'bg-rose-500' : 'bg-amber-400'" :style="'width: ' + item.progress + '%'"></div>
+                                            </div>
+                                        </div>
+                                    </td>
+
+                                    <td x-show="editMode" class="px-5 py-4 text-center">
+                                        <div class="flex gap-1.5 justify-center">
+                                            <button 
+                                                @click="item.isBlocked = !item.isBlocked; syncFinancialsFromInitiatives()" 
+                                                class="p-2 rounded-xl border transition-all duration-300"
+                                                :class="item.isBlocked ? 'bg-emerald-500/10 hover:bg-emerald-500 text-emerald-500 hover:text-white border-emerald-500/20' : 'bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white border-rose-500/15'"
+                                                :title="item.isBlocked ? 'Reactivar Proyecto' : 'Suspender (Stand-by)'">
+                                                <i class="fa-solid" :class="item.isBlocked ? 'fa-lock-open' : 'fa-lock'"></i>
+                                            </button>
+                                            <button 
+                                                @click="removeInitiative(item.id)" 
+                                                class="bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white transition-all duration-300 p-2 rounded-xl border border-rose-500/15 shadow-md"
+                                                title="Eliminar Iniciativa">
+                                                <i class="fa-solid fa-trash-can"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+
+                                </tr>
+                            </template>
+                            <template x-if="getFilteredInitiatives().length === 0">
+                                <tr>
+                                    <td colspan="7" class="text-center py-8 text-slate-500 uppercase tracking-widest text-[10px] font-bold">
+                                        No hay iniciativas cargadas en la vista para el trimestre <span class="text-[#00E676]" x-text="selectedQFilter"></span>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+
+        <div x-show="activeTab === 'base_datos'" x-transition:enter="transition ease-out duration-300" class="space-y-8" style="display: none;">
+            
+            <section class="bg-[#0a1612]/90 border border-emerald-900/40 rounded-3xl p-6 md:p-8 shadow-2xl relative overflow-hidden">
+                <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500 to-[#00E676]"></div>
+                
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 pb-4 border-b border-emerald-950">
+                    <div>
+                        <span class="bg-emerald-500/10 text-[#00E676] px-3 py-1 rounded-full text-[10px] uppercase font-bold tracking-wider border border-emerald-500/20">CONEXIÓN NATIVA</span>
+                        <h3 class="text-xl font-extrabold text-slate-100 mt-2 flex items-center gap-2">
+                            <i class="fa-solid fa-cloud-arrow-down text-[#00E676]"></i>
+                            <span>Sincronizador Automático mediante API de Google Script</span>
+                        </h3>
+                        <p class="text-xs text-slate-400 mt-1">
+                            Se conecta con la Aplicación Web publicada para esquivar restricciones de red y bloqueos de CORS.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-end">
+                    <div class="lg:col-span-8 space-y-2">
+                        <label class="block text-xs font-bold text-slate-300 uppercase tracking-wider">Estado del Sincronizador Dedicado:</label>
+                        <input 
+                            type="text" 
+                            readonly
+                            value="Conexión Directa Anti-CORS Configurada con itti.digital" 
+                            class="w-full bg-slate-950/50 text-[#00E676] text-xs rounded-xl p-3.5 border border-emerald-900/40 font-bold transition-colors">
+                    </div>
+                    
+                    <div class="lg:col-span-4 flex gap-2">
+                        <button 
+                            @click="syncFromGoogleSheets()" 
+                            :disabled="isSyncing"
+                            class="flex-1 bg-[#00E676] disabled:bg-[#00E676]/50 text-slate-950 text-xs font-black p-3.5 rounded-xl hover:bg-[#00c564] transition-all flex items-center justify-center gap-2 shadow-lg">
+                            <template x-if="isSyncing">
+                                <i class="fa-solid fa-spinner animate-spin"></i>
+                            </template>
+                            <template x-if="!isSyncing">
+                                <i class="fa-solid fa-rotate"></i>
+                            </template>
+                            <span x-text="isSyncing ? 'Sincronizando...' : 'Sincronizar ahora'"></span>
+                        </button>
+                    </div>
+                </div>
+
+                <template x-if="lastSyncTime">
+                    <div class="mt-4 text-[11px] text-emerald-400 font-semibold flex items-center gap-1.5 bg-emerald-950/20 px-3 py-1.5 rounded-lg border border-emerald-900/30 w-fit">
+                        <i class="fa-solid fa-circle-check animate-pulse"></i>
+                        <span>Última sincronización a través de API exitosa: <span x-text="lastSyncTime"></span></span>
+                    </div>
+                </template>
+            </section>
+
+            <section class="bg-[#070b14]/90 border border-slate-900 rounded-3xl p-6 md:p-8 shadow-xl relative overflow-hidden">
+                <div class="flex flex-col lg:flex-row gap-8">
+                    
+                    <div class="w-full lg:w-1/2 space-y-6">
+                        <div class="space-y-2">
+                            <span class="bg-[#00E676]/10 text-[#00E676] px-3 py-1 rounded-full text-[10px] uppercase font-bold tracking-wider border border-emerald-500/20">Cargador Manual Alternativo</span>
+                            <h3 class="text-xl font-extrabold text-slate-100">Sube tu CSV de Jira o Excel</h3>
+                            <p class="text-xs text-slate-400 leading-relaxed">
+                                Si quieres importar manualmente datos fuera de la hoja automatizada, puedes arrastrar aquí archivos ordenados de Excel o exportaciones nativas de Jira.
+                            </p>
+                        </div>
+
+                        <template x-if="importSuccess">
+                            <div class="bg-emerald-500/10 border border-emerald-500/20 text-[#00E676] text-xs p-4 rounded-xl flex items-start gap-2.5">
+                                <i class="fa-solid fa-circle-check text-base mt-0.5"></i>
+                                <span class="font-medium" x-text="importSuccess"></span>
+                            </div>
+                        </template>
+                        <template x-if="importError">
+                            <div class="bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs p-4 rounded-xl flex items-start gap-2.5">
+                                <i class="fa-solid fa-circle-exclamation text-base mt-0.5"></i>
+                                <span class="font-medium" x-text="importError"></span>
+                            </div>
+                        </template>
+                    </div>
+
+                    <div class="w-full lg:w-1/2 space-y-6">
+                        <div class="space-y-2">
+                            <h4 class="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                                <i class="fa-solid fa-paste text-[#00E676]"></i>
+                                <span>Carga Rápida (Pegar celdas directamente de Excel/Jira)</span>
+                            </h4>
+                            <p class="text-[11px] text-slate-500 leading-normal">
+                                Copia el bloque de filas de tu hoja de cálculo o exportación y pégalo abajo directamente para procesarlo sin usar archivos.
+                            </p>
+                        </div>
+
+                        <div class="space-y-3">
+                            <textarea 
+                                x-model="csvPasteArea"
+                                placeholder='Tipo de Incidencia;Clave;Resumen;Estado;Fase;Q de Compromiso;Valor total por iniciativa;Porcentaje de avance del proyecto;Tipo de bloqueo&#10;Tarea;TOMDC-11;Documentación de procesos;FINALIZADO;Finalizado;Q1;1250000;100;None&#10;Tarea;TOMDC-13;Mejoras gestión tickets;EN DESARROLLO;En desarrollo;Q2;450000;45;None'
+                                class="w-full h-32 bg-slate-950/80 text-xs text-slate-200 p-4 rounded-2xl border border-slate-900 focus:outline-none focus:border-[#00E676] font-mono leading-relaxed"
+                            ></textarea>
+                            <div class="flex justify-end">
+                                <button 
+                                    @click="importCSVData()"
+                                    class="bg-[#00E676] text-slate-950 text-xs font-black px-6 py-2.5 rounded-xl hover:bg-[#00c564] transition-all flex items-center gap-2 shadow-lg">
+                                    <i class="fa-solid fa-bolt"></i>
+                                    <span>Procesar Datos Manuales</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+        </div>
+
+        <div class="bg-[#070b14]/50 border border-slate-900 rounded-2xl p-5 mt-10 flex flex-col md:flex-row gap-4 items-center justify-between text-xs text-slate-400 shadow-lg">
+            <div class="flex items-center gap-3">
+                <div class="bg-emerald-500/10 p-2.5 rounded-xl text-[#00E676] shadow-[0_0_8px_rgba(0,230,118,0.2)]">
+                    <i class="fa-solid fa-circle-info text-base"></i>
+                </div>
+                <div>
+                    <strong class="text-slate-200">Sincronización Total Activa:</strong> % Logro = (Resultado / Meta) * 100. Los totales de ambas hojas se recalculan dinámicamente cada vez que ejecutas la sincronización de Google Apps Script.
+                </div>
+            </div>
+            <div class="text-right text-slate-500 font-semibold">
+                Soporte oficial integrado para <span class="underline">Base Jira Transformación</span>
+            </div>
+        </div>
+
+    </div>
+
+    <footer class="bg-slate-950/60 py-5 text-center border-t border-slate-900/60 text-xs text-slate-500 mt-12">
+        <p>© 2026 Resumen Ejecutivo - Equipo de Transformación. Desarrollado con excelencia visual e interactiva.</p>
+    </footer>
+
+</body>
+</html>
